@@ -1,0 +1,478 @@
+TopstepX Trading Algo — Repository Starter
+Purpose: Jumpstart for a trading algorithm repository integrated with TopstepX (ProjectX). Includes a SignalR bridge, Node.js market hub client, Python SDK examples, TradingView/React frontend skeleton, strategy templates, and docs.
+________________________________________
+Quick summary
+This starter contains:
+•	A Node.js SignalR bridge using @microsoft/signalr to reliably connect to TopstepX market hubs.
+•	A lightweight server REST API for order orchestration and forwarding messages to strategy engine.
+•	A React frontend skeleton (Chart + Market Panel) that can use TradingView Charting Library.
+•	Python SDK example for REST actions (auth, order CRUD) and a strategy runner template.
+•	Pine Script template for indicator prototyping.
+•	Templates for indicators, order management (market/limit/stop/bracket), risk controls, backtest hook.
+•	CI config and contributor docs.
+NOTE: This repo starter is intentionally opinionated and modular — pick pieces you want and extend.
+________________________________________
+Included files & structure (high level)
+/topstepx-trading-algo-starter
+├── README.md
+├── LICENSE (MIT)
+├── .env.example
+├── server/
+│   ├── package.json
+│   ├── src/
+│   │   ├── index.js            # Express API + websocket to frontend
+│   │   ├── signalRBridge.js    # Official @microsoft/signalr bridge
+│   │   └── orders.js           # Order orchestration / post-entry edits
+│   └── Dockerfile
+├── python/
+│   ├── requirements.txt
+│   ├── sdk_example.py          # Auth, place order, edit stop examples
+│   └── strategy_engine.py      # Strategy runner / risk manager stub
+├── client/
+│   ├── package.json
+│   ├── src/
+│   │   ├── App.jsx             # React entry, layout
+│   │   ├── components/
+│   │   │   ├── Chart.jsx       # TradingView chart wrapper
+│   │   │   ├── MarketPanel.jsx # Live price, 24h stats
+│   │   │   └── OrderControls.jsx
+│   │   └── styles/tailwind.css
+│   └── public/
+├── indicators/
+│   ├── pine_template.pine      # Pine v5 indicator starter
+│   └── htf_alignment.md
+├── docs/
+│   ├── API_USAGE.md
+│   └── SIGNALR_BRIDGE.md
+├── .github/workflows/ci.yml
+└── CONTRIBUTING.md
+________________________________________
+Environment / config examples
+Create a .env (or set secrets in CI / GitHub) with these keys:
+# Server
+PORT=3000
+TSX_API_ENDPOINT=https://api.topstepx.com
+TSX_MARKET_HUB=https://rtc.topstepx.com/hubs/market
+TSX_USER_HUB=https://rtc.topstepx.com/hubs/user
+TSX_API_KEY=your_api_key_here
+TSX_USERNAME=your_email_or_username
+SESSION_TOKEN=               # populated after login
+
+# Frontend
+VITE_API_URL=http://localhost:3000
+TRADINGVIEW_LIBRARY_KEY=      # if you have a paid key
+________________________________________
+SignalR Bridge (server/src/signalRBridge.js)
+Use the official Microsoft client in Node.js to avoid signalrcore issues. Example snippet uses the Real-Time Market Hub https://rtc.topstepx.com/hubs/market and the access_token query param.
+// server/src/signalRBridge.js
+const { HubConnectionBuilder, HttpTransportType } = require('@microsoft/signalr');
+const EventEmitter = require('events');
+
+class SignalRBridge extends EventEmitter {
+  constructor({ accessToken }) {
+    super();
+    this.accessToken = accessToken;
+    this.connection = null;
+  }
+
+  async start(contractId) {
+    if (this.connection) return;
+    const url = `https://rtc.topstepx.com/hubs/market?access_token=${this.accessToken}`;
+
+    this.connection = new HubConnectionBuilder()
+      .withUrl(url, { skipNegotiation: true, transport: HttpTransportType.WebSockets, accessTokenFactory: () => this.accessToken })
+      .withAutomaticReconnect()
+      .build();
+
+    this.connection.on('GatewayQuote', (cid, payload) => this.emit('quote', { cid, payload }));
+    this.connection.on('GatewayTrade', (cid, payload) => this.emit('trade', { cid, payload }));
+    this.connection.on('GatewayDepth', (cid, payload) => this.emit('depth', { cid, payload }));
+
+    this.connection.onreconnected((connectionId) => {
+      console.log('[SignalR] reconnected', connectionId);
+      this.subscribe(contractId);
+    });
+
+    await this.connection.start();
+    console.log('[SignalR] connected');
+    this.subscribe(contractId);
+  }
+
+  subscribe(contractId) {
+    if (!this.connection) return;
+    this.connection.invoke('SubscribeContractQuotes', contractId);
+    this.connection.invoke('SubscribeContractTrades', contractId);
+    this.connection.invoke('SubscribeContractMarketDepth', contractId);
+  }
+}
+
+module.exports = SignalRBridge;
+Design notes: Node bridge solves reliability problems seen when using Python signalrcore. The Python process can communicate with Node via local WebSocket/HTTP or Redis pub/sub.
+________________________________________
+Server (order orchestration) — key ideas
+•	Expose REST endpoints for POST /api/order (place), PUT /api/order/:id/edit (edit stop/TP), POST /api/order/:id/cancel, and GET /api/account.
+•	Use the official TopstepX REST API endpoint https://api.topstepx.com and OAuth-style token flow described in the docs.
+•	Keep order logic idempotent and tag orders with strategyId for grouping bracket/OCO behavior.
+•	Bracket orders: create entry + OCO children that cancel the others when one fills.
+________________________________________
+Python SDK example (python/sdk_example.py)
+Contains a small example showing authentication and placing a limit order using the REST endpoint. Also shows how Python can subscribe to the Node bridge (via WebSocket) to receive market ticks.
+# python/sdk_example.py
+import requests
+
+API_ENDPOINT = 'https://api.topstepx.com'
+
+def auth(username, api_key):
+    url = f"{API_ENDPOINT}/api/Auth/loginKey"
+    resp = requests.post(url, json={'userName': username, 'apiKey': api_key})
+    resp.raise_for_status()
+    return resp.json().get('token')
+
+# place an order example
+
+def place_order(token, account_id, symbol, side, price, qty):
+    headers = {'Authorization': f'Bearer {token}'}
+    url = f"{API_ENDPOINT}/api/Orders"
+    payload = {
+        'accountId': account_id,
+        'symbol': symbol,
+        'side': side,
+        'orderType': 'Limit',
+        'price': price,
+        'quantity': qty
+    }
+    r = requests.post(url, json=payload, headers=headers)
+    r.raise_for_status()
+    return r.json()
+________________________________________
+Frontend (React) — chart + controls
+•	Use TradingView Charting Library (if you have a key) or a fallback like Lightweight Charts for free usage.
+•	Provide components: Chart, OrderControls, MarketPanel.
+•	Realtime updates from server via WebSocket (the server pushes parsed ticks / OHLC / volume / HTF alignment signals).
+________________________________________
+Indicators & Strategy templates
+•	indicators/pine_template.pine — Pine Script v5 template for prototyping. Includes HTF alignment flag input.
+•	python/strategy_engine.py — skeleton to attach a strategy to instruments and run entry/exit rules with risk controls.
+________________________________________
+Backtest & ML hooks
+•	Backtesting scaffolding in python/backtest/ that can consume historical data exported from TopstepX REST (or CSV) and run strategies to produce P&L, equity curve, win rate and other metrics.
+•	Placeholder for ML model training pipeline that consumes feature-engineered time-series and hyperparameter tuning results.
+________________________________________
+Docs & next steps
+•	docs/SIGNALR_BRIDGE.md explains why Node bridge exists and shows patterns for connecting Python -> Node (HTTP, WebSocket, Redis).
+•	docs/API_USAGE.md contains concrete REST examples, required headers, and response shapes for the most-used endpoints.
+________________________________________
+CI / Deployment
+•	.github/workflows/ci.yml runs tests, linting, and a build of client/server.
+•	Dockerfile(s) provided for production containerization of the server and a multi-stage build for the client.
+________________________________________
+LICENSE
+MIT — modify as needed.
+________________________________________
+How to use this starter (suggested flow)
+1.	Copy desired directories into a new repository.
+2.	Configure .env with your TopstepX API key and username.
+3.	Start the Node server bridge to begin receiving market events.
+4.	Run the Python strategy engine or connect your bot to the Node bridge via local WebSocket.
+5.	Hook frontend to the server for live visualization.
+________________________________________
+Helpful references (already in this repo starter)
+•	TopstepX API docs: https://gateway.docs.projectx.com/docs/intro/
+•	TopstepX endpoints: https://api.topstepx.com, https://rtc.topstepx.com/hubs/market, https://rtc.topstepx.com/hubs/user
+•	Example GitHub repos provided as references (included in the repo notes)
+________________________________________
+Final notes
+This starter is tuned for reliability and modularity. It leans on a Node SignalR bridge (official JS client) and keeps Python for strategy/backtesting and REST interaction. It includes clear extension points for bracket/OCO orders, HTF alignment logic, and risk management primitives.
+If you’d like, I can also:
+•	Generate the actual file contents for each file in this scaffold and open a Copilot-style PR body you can paste into GitHub.
+•	Produce a working server/ project (complete package.json, Dockerfile, and src/ files) and a minimal client/ React app that loads the TradingView chart.
+________________________________________
+Generated by TopstepX Code Builder — starter template.
+________________________________________
+Added: Pre-built strategies, Lightweight Charts frontend, contract dropdown, and UI styling (requested image background)
+Below are ready-to-drop files and snippets added to the starter to meet your request: use Topstep live candles, lightweight TradingView-style charts, minute timeframes, a contract dropdown (NQ, GC, MGC, ES, MES, etc.) and a simple dark/sleek background using the provided Chill.webp image.
+1) Server: server/src/strategy_engine.py (Python) — pre-coded strategies
+# server/src/strategy_engine.py
+# Strategy Engine: receives incoming candles (from Node SignalR bridge via local websocket)
+# and runs pre-coded strategies. Emits orders via REST to TopstepX through server order API.
+
+import math
+import time
+from collections import deque
+
+class BaseStrategy:
+    def __init__(self, name, params):
+        self.name = name
+        self.params = params
+        self.position = 0
+        self.orders = []
+
+    def on_candle(self, candle):
+        raise NotImplementedError
+
+    def emit_order(self, order):
+        self.orders.append(order)
+        return order
+
+# Utility indicators
+
+def atr_from_candles(candles, period=14):
+    if len(candles) < period + 1:
+        return None
+    trs = []
+    for i in range(1, len(candles)):
+        high = candles[i]['high']
+        low = candles[i]['low']
+        prev_close = candles[i-1]['close']
+        tr = max(high - low, abs(high - prev_close), abs(low - prev_close))
+        trs.append(tr)
+    return sum(trs[-period:]) / period
+
+
+# Strategy 1: ATR Breakout
+class ATRBreakout(BaseStrategy):
+    def __init__(self, params=None):
+        params = params or {'atr_period':14, 'mult':1.5, 'lookback':20, 'qty':1}
+        super().__init__('ATRBreakout', params)
+        self.candles = deque(maxlen=200)
+
+    def on_candle(self, candle):
+        self.candles.append(candle)
+        if len(self.candles) < self.params['lookback']:
+            return None
+        highs = [c['high'] for c in list(self.candles)[-self.params['lookback']:]]
+        lows = [c['low'] for c in list(self.candles)[-self.params['lookback']:]]
+        range_hi = max(highs)
+        range_lo = min(lows)
+        atr = atr_from_candles(list(self.candles), self.params['atr_period'])
+        if atr is None:
+            return None
+        long_break = range_hi + atr * self.params['mult']
+        short_break = range_lo - atr * self.params['mult']
+        last_close = candle['close']
+        # simple entry
+        if last_close > long_break and self.position == 0:
+            order = {'action':'BUY', 'type':'MARKET', 'qty':self.params['qty'], 'reason':'ATR Breakout Long'}
+            self.position = 1
+            return self.emit_order(order)
+        if last_close < short_break and self.position == 0:
+            order = {'action':'SELL', 'type':'MARKET', 'qty':self.params['qty'], 'reason':'ATR Breakout Short'}
+            self.position = -1
+            return self.emit_order(order)
+        return None
+
+
+# Strategy 2: Mean Reversion on Pullback (VWAP-like/Moving average)
+class MeanReversion(BaseStrategy):
+    def __init__(self, params=None):
+        params = params or {'ma_period':50, 'band_mult':2.0, 'qty':1}
+        super().__init__('MeanReversion', params)
+        self.candles = deque(maxlen=300)
+
+    def simple_ma(self, arr, n):
+        if len(arr) < n: return None
+        return sum(arr[-n:]) / n
+
+    def on_candle(self, candle):
+        self.candles.append(candle)
+        closes = [c['close'] for c in self.candles]
+        ma = self.simple_ma(closes, self.params['ma_period'])
+        if ma is None: return None
+        cur = candle['close']
+        # distance from MA
+        dev = abs(cur - ma)
+        if dev > self.params['band_mult'] * (self.params.get('atr',1)) and self.position == 0:
+            # enter mean reversion
+            if cur > ma:
+                order = {'action':'SELL', 'type':'MARKET', 'qty':self.params['qty'], 'reason':'MeanReversion Short'}
+                self.position = -1
+                return self.emit_order(order)
+            else:
+                order = {'action':'BUY', 'type':'MARKET', 'qty':self.params['qty'], 'reason':'MeanReversion Long'}
+                self.position = 1
+                return self.emit_order(order)
+        return None
+
+
+# Strategy Manager: attach many strategies and dispatch
+class StrategyManager:
+    def __init__(self, emit_order_callback):
+        self.strategies = {}
+        self.emit_order = emit_order_callback
+
+    def register(self, name, strategy):
+        self.strategies[name] = strategy
+
+    def on_candle(self, symbol, candle):
+        for s in self.strategies.values():
+            result = s.on_candle(candle)
+            if result:
+                # decorate result with symbol and strategy
+                result['symbol'] = symbol
+                result['strategy'] = s.name
+                self.emit_order(result)
+
+
+# Example local usage
+if __name__ == '__main__':
+    def demo_emit(order):
+        print('EMIT ORDER ->', order)
+    mgr = StrategyManager(demo_emit)
+    mgr.register('atr', ATRBreakout({'atr_period':14,'mult':1.6,'lookback':20,'qty':1}))
+    # simulate stream of candle dicts with keys: open, high, low, close, volume, timestamp
+    import random
+    base = 1000
+    for i in range(400):
+        o = base + random.uniform(-2, 2)
+        c = o + random.uniform(-3,3)
+        h = max(o,c) + random.uniform(0,2)
+        l = min(o,c) - random.uniform(0,2)
+        v = random.randint(10,100)
+        candle = {'open':o,'high':h,'low':l,'close':c,'volume':v,'timestamp':time.time()}
+        mgr.on_candle('NQ', candle)
+        base = c
+        time.sleep(0.01)
+2) Node server bridge -> provide candles to strategies
+Add a small websocket server in server/src/candleRouter.js that receives SignalR events and broadcasts consolidated candles to connected strategy clients (Python or others). The Node SignalR bridge should aggregate trades into minute candles (or forward gateway candles if available).
+Snippet (Node):
+// server/src/candleRouter.js
+const WebSocket = require('ws');
+const EventEmitter = require('events');
+
+class CandleRouter extends EventEmitter {
+  constructor() {
+    super();
+    this.wss = new WebSocket.Server({ port: 8081 });
+    this.wss.on('connection', ws => {
+      ws.on('message', msg => {
+        // support simple control messages if needed
+      });
+    });
+  }
+
+  broadcastCandle(symbol, candle) {
+    const msg = JSON.stringify({ type: 'candle', symbol, candle });
+    this.wss.clients.forEach(client => {
+      if (client.readyState === WebSocket.OPEN) client.send(msg);
+    });
+    this.emit('candle', symbol, candle);
+  }
+}
+
+module.exports = CandleRouter;
+Then in your signalRBridge.js invoke candleRouter.broadcastCandle(symbol, candle) when you either receive a prebuilt candle event (if TopstepX sends one) or after you aggregate trades into a minute candle.
+3) Frontend: Lightweight Charts (client/src/components/Chart.jsx)
+This is a minimal React wrapper using lightweight-charts (TradingView Lightweight) to make the chart look and behave like your screenshot.
+// client/src/components/Chart.jsx
+import React, { useEffect, useRef } from 'react';
+import { createChart } from 'lightweight-charts';
+
+export default function Chart({ symbol='NQ', timeframe='1m', candleStream }){
+  const ref = useRef();
+  const chartRef = useRef();
+  const seriesRef = useRef();
+
+  useEffect(() => {
+    const chart = createChart(ref.current, {
+      width: ref.current.clientWidth,
+      height: 720,
+      layout: { backgroundColor: 'rgba(10,10,10,0.9)', textColor: '#dcdcdc' },
+      grid: { vertLines: { color: '#1b1b1b' }, horzLines: { color: '#1b1b1b' } },
+      crosshair: { mode: 1 },
+      timeScale: { timeVisible: true, secondsVisible: false }
+    });
+    chartRef.current = chart;
+    const candleSeries = chart.addCandlestickSeries({
+      upColor: '#00b894', downColor: '#d63031', borderDownColor: '#d63031', borderUpColor: '#00b894', wickDownColor: '#d63031', wickUpColor: '#00b894'
+    });
+    seriesRef.current = candleSeries;
+
+    window.addEventListener('resize', () => chart.applyOptions({ width: ref.current.clientWidth }));
+
+    return () => chart.remove();
+  }, []);
+
+  // receive realtime candle updates from parent via prop 'candleStream' (EventEmitter or Observable)
+  useEffect(() => {
+    if (!candleStream) return;
+    const onCandle = (msg) => {
+      if (msg.type !== 'candle' || msg.symbol !== symbol) return;
+      // lightweight-charts expects {time, open, high, low, close}
+      const c = { time: Math.floor(msg.candle.timestamp), open: msg.candle.open, high: msg.candle.high, low: msg.candle.low, close: msg.candle.close };
+      // if it's an update push, use update; else use series.update
+      try { seriesRef.current.update(c); } catch(e) { seriesRef.current.setData([c]); }
+    };
+    candleStream.on('message', onCandle);
+    return () => candleStream.off('message', onCandle);
+  }, [candleStream, symbol]);
+
+  return <div ref={ref} style={{ width:'100%', height:'720px', borderRadius: '8px', overflow:'hidden' }} />;
+}
+Note: The above expects a simple EventEmitter-like candleStream prop. In the starter the Node server will expose a socket/websocket and the React app can connect and wrap events into an emitter.
+4) Frontend: Contract Dropdown & timeframe selector (client/src/components/ContractSelector.jsx)
+// client/src/components/ContractSelector.jsx
+import React from 'react';
+
+const CONTRACTS = [
+  { symbol: 'NQ', name: 'E-mini NASDAQ-100 (NQ)'} ,
+  { symbol: 'ES', name: 'E-mini S&P 500 (ES)'} ,
+  { symbol: 'GC', name: 'Gold (GC)'} ,
+  { symbol: 'MGC', name: 'Micro Gold (MGC)'} ,
+  { symbol: 'MES', name: 'Micro E-mini S&P (MES)'} ,
+  { symbol: 'MNQ', name: 'Micro E-mini NASDAQ (MNQ)'}
+];
+
+export default function ContractSelector({ value, onChange }){
+  return (
+    <div className="contract-selector">
+      <select value={value} onChange={e=>onChange(e.target.value)}>
+        {CONTRACTS.map(c => <option key={c.symbol} value={c.symbol}>{c.symbol} — {c.name}</option>)}
+      </select>
+      <div className="timeframes">
+        {[ '1m','3m','5m','15m','30m','1h','4h','1D' ].map(tf => (
+          <button key={tf} onClick={() => onChange(value, tf)}>{tf}</button>
+        ))}
+      </div>
+    </div>
+  );
+}
+The selector uses a fixed list but you can dynamically fetch available contract list from TopstepX REST (/api/Contract/search or similar) and map names to symbols there.
+5) Styling: simple dark/sleek background and using your provided Chill.webp
+Add to client/src/styles/tailwind.css (or plain CSS) to make the layout match the screenshot: background image, blurred, chart centered.
+body {
+  margin:0; padding:0; font-family: Inter, system-ui, -apple-system, 'Segoe UI', Roboto;
+  background: #070707 url('/assets/Chill.webp') no-repeat center center fixed;
+  background-size: cover;
+  color: #dcdcdc;
+}
+
+.app-shell {
+  backdrop-filter: blur(6px) saturate(1.1);
+  background: rgba(8,8,8,0.55); /* subtle dark layer so UI panels are readable */
+  min-height: 100vh;
+  display:flex; flex-direction: column;
+}
+
+.chart-panel{
+  margin: 20px auto; width: 92%; background: rgba(2,2,2,0.65); border-radius:8px; box-shadow: 0 6px 24px rgba(0,0,0,0.6);
+}
+
+.side-panel { width: 320px; }
+
+button { background: transparent; border:1px solid #222; color:#ddd; padding:6px 10px; border-radius:6px }
+
+select { background:#0f0f0f; color:#ddd; border:1px solid #222; padding:8px; border-radius:6px }
+Put Chill.webp in client/public/assets/Chill.webp so it’s served directly.
+6) Use Topstep live candles
+•	If TopstepX sends pre-aggregated candle events use the event name (check SignalR hub docs). If not, the signalRBridge.js should aggregate trades into minute candles server-side and then candleRouter.broadcastCandle(symbol, candle) to clients and to Python strategy engine.
+•	The Node server code includes automatic reconnection and re-subscription logic. When the server restarts, it should re-subscribe to the active contract list.
+7) Minute timeframes & intra-minute data
+•	The client provides 1m/3m/5m… options. For sub-minute (tick-level) you can push trade-level updates as seriesRef.current.update({ time: Date.now()/1000, open, high, low, close }) but lightweight-charts is limited to second granularity by default.
+8) Quick wiring summary (what’s added & how to run)
+1.	Place Chill.webp in client/public/assets.
+2.	Add candleRouter.js and integrate it into server/src/index.js where the SignalR bridge lives; call candleRouter.broadcastCandle(symbol, candle) on every finished minute candle.
+3.	Start the Node server (npm install && npm run dev) and the Python strategy engine can connect to ws://localhost:8081 to receive candle messages.
+4.	Start the React client; connect to ws://localhost:8081 and forward messages into the Chart component (wrap as an EventEmitter that emits message events used in Chart.jsx).
+________________________________________
+If you want, I can now: - generate the actual files (server candleRouter.js, updated signalRBridge.js, client Chart.jsx, ContractSelector.jsx, CSS) and place them in the canvas as separate code files; OR - produce a ZIP of the whole repo with these changes; OR - implement one specific strategy in more depth (e.g., full ATR-breakout with bracket OCO order placement via Topstep REST Orders endpoint).
+Tell me which next step you want and I will drop the concrete files into the repository canvas for you.

@@ -1,0 +1,27 @@
+{
+  "name": "topstepx-frontend-clone",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "vite",
+    "build": "vite build",
+    "preview": "vite preview",
+    "test": "npm run build",
+    "test:e2e": "npm run build && playwright test",
+    "test:e2e:headed": "npm run build && playwright test --headed"
+  },
+  "dependencies": {
+    "classnames": "^2.5.1",
+    "lightweight-charts": "^4.1.0",
+    "react": "^18.3.1",
+    "react-dom": "^18.3.1"
+  },
+  "devDependencies": {
+    "@types/react": "^18.3.3",
+    "@types/react-dom": "^18.3.3",
+    "@vitejs/plugin-react": "^4.3.1",
+    "@playwright/test": "^1.48.2",
+    "vite": "^5.2.8"
+  }
+}

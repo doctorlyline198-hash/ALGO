@@ -1,0 +1,7 @@
+- [x] Create `server/.env` with provided credentials and endpoints
+- [x] Create `client/.env` pointing to local bridge
+- [x] Start SignalR bridge server and confirm connection
+- [x] Start React client dev server for preview
+- [ ] Investigate missing candles from live stream and capture payloads
+- [ ] Implement server-side monitor/logger for diagnostics
+- [ ] Provide fallback/indicator overlay on frontend (SMA) and ensure chart renders
