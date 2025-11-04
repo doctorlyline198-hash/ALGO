@@ -1,8 +1,48 @@
+# Dependencies
 node_modules/
 client/node_modules/
 server/node_modules/
+
+# Environment files
 .env
 *.env
+
+# Build outputs
 dist/
+client/dist/
+server/dist/
+
+# Test outputs
 playwright-report/
+test-results/
+coverage/
+
+# IDE
 .vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Temporary files
+*.tmp
+*.temp
+*.log
+
+# Documents (keep source code only)
+*.docx
+*.doc
+*.pdf
+
+# Python
+__pycache__/
+*.py[cod]
+*.pyo
+*.pyd
+.Python
+venv/
+env/

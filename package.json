@@ -2,17 +2,20 @@
   "name": "algo-monorepo",
   "private": true,
   "version": "0.0.0",
+  "description": "TopstepX Dashboard Clone - Trading dashboard with live market data and order execution",
   "scripts": {
-  "prepare": "husky install",
-  "lint-client": "node scripts/run-client-test.js",
-  "lint-server": "node scripts/run-server-test.js"
+    "prepare": "husky install",
+    "lint-client": "node scripts/run-client-test.js",
+    "lint-server": "node scripts/run-server-test.js",
+    "test": "npm run lint-client && npm run lint-server",
+    "install:all": "npm install && cd client && npm install && cd ../server && npm install"
   },
   "devDependencies": {
     "husky": "^9.1.6",
     "lint-staged": "^16.2.6"
   },
   "lint-staged": {
-  "client/src/**/*.{js,jsx,ts,tsx,css}": "npm run lint-client",
-  "server/src/**/*.js": "npm run lint-server"
+    "client/src/**/*.{js,jsx,ts,tsx,css}": "npm run lint-client",
+    "server/src/**/*.js": "npm run lint-server"
   }
 }
