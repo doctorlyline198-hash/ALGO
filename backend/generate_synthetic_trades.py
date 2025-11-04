@@ -192,7 +192,6 @@ class SyntheticTradeGenerator:
         is_winner = random.random() < win_probability
         
         # Calculate target and stop based on strategy
-        tick_size = self.contract['tick_size']
         volatility_points = self.contract['volatility'] * 0.01  # 1% of daily volatility
         
         if is_winner:
@@ -221,6 +220,7 @@ class SyntheticTradeGenerator:
             points = entry_price - exit_price
         
         # Convert points to dollars using tick value
+        tick_size = self.contract['tick_size']
         tick_value = self.contract['tick_value']
         dollar_per_point = tick_value / tick_size
         gross_pnl = points * dollar_per_point

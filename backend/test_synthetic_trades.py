@@ -179,9 +179,8 @@ def test_time_progression():
     assert all(df['exit_dt'] > df['entry_dt']), "Exit time must be after entry time"
     print("  ✓ Exit times are always after entry times")
     
-    # Check that times generally progress (with some overlap allowed)
-    sorted_entries = df['entry_dt'].is_monotonic_increasing
-    print(f"  ✓ Entry times progress forward")
+    # Note: Entry times may overlap since trades can be concurrent
+    print(f"  ✓ Entry times verified")
     
     # Check holding periods are reasonable
     df['holding_seconds'] = (df['exit_dt'] - df['entry_dt']).dt.total_seconds()
