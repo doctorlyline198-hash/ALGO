@@ -1,8 +1,6 @@
-flask==3.0.0
-flask-cors==4.0.0
-signalrcore==0.9.5
-requests==2.31.0
-pandas==2.1.3
-numpy==1.26.2
-python-dotenv==1.0.0
-websocket-client==1.6.4
+flask
+flask-cors
+requests
+pandas
+numpy
+python-dotenv
