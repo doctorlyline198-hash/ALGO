@@ -3,16 +3,14 @@
   "private": true,
   "version": "0.0.0",
   "scripts": {
-  "prepare": "husky install",
-  "lint-client": "node scripts/run-client-test.js",
-  "lint-server": "node scripts/run-server-test.js"
+    "prepare": "husky install"
   },
   "devDependencies": {
     "husky": "^9.1.6",
-    "lint-staged": "^16.2.6"
+    "lint-staged": "^15.2.10"
   },
   "lint-staged": {
-  "client/src/**/*.{js,jsx,ts,tsx,css}": "npm run lint-client",
-  "server/src/**/*.js": "npm run lint-server"
+    "client/src/**/*.{js,jsx,ts,tsx,css}": "node scripts/run-client-tests.cjs",
+    "server/src/**/*.js": "npm --prefix server run test"
   }
 }

@@ -49,6 +49,6 @@ This workspace now contains:
 ## Notes
 
 - The bridge emits 1-minute aggregated candles and serves current account information through `GET /api/accounts`.
-- Additional REST proxies are available: `POST /api/accounts/search`, `GET|POST /api/contracts` for contract discovery, and `POST /api/orders` for submitting orders via Topstep.
+- Additional REST proxies are available: `POST /api/accounts/search`, `GET|POST /api/contracts` for contract discovery, `POST /api/orders` for submitting orders via Topstep, and `GET /api/patterns` for server-side chart pattern scans.
 - Secrets stay in `.env`; rotate them if you ever commit inadvertently.
 - UI components accept live data, but still include mock strategy rows and analytics as placeholders until real strategy endpoints are wired up.

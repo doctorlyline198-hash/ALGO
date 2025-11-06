@@ -10,9 +10,29 @@ import { logger, logUnhandledErrors } from './logger.js';
 import { monitor } from './monitor.js';
 import { resolveContract, resolveContractCode } from './contracts.js';
 import { normalizeOrderPayload, ORDER_TYPES, ORDER_SIDES } from './orderEnums.js';
+import { evaluateChartPatterns } from '../../shared/patterns/index.js';
+import { resampleCandles } from '../../shared/utils/timeframes.js';
 
 const app = express();
-app.use(cors());
+app.use(
+  cors({
+    origin: true,
+    credentials: true,
+    methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'],
+    allowedHeaders: ['Content-Type', 'Authorization', 'X-Requested-With', 'Accept'],
+    preflightContinue: true
+  })
+);
+app.use((req, res, next) => {
+  res.header('Access-Control-Allow-Private-Network', 'true');
+  res.header('Access-Control-Allow-Headers', 'Content-Type, Authorization, X-Requested-With, Accept, Access-Control-Allow-Private-Network');
+  if (req.method === 'OPTIONS') {
+    res.header('Access-Control-Allow-Methods', 'GET,POST,PUT,PATCH,DELETE,OPTIONS');
+    res.sendStatus(204);
+    return;
+  }
+  next();
+});
 app.use(express.json());
 
 const server = http.createServer(app);
@@ -23,6 +43,10 @@ const aggregator = new CandleAggregator();
 
 const DEFAULT_TICK_SIZE = 0.25;
 const DEFAULT_TICK_VALUE = 12.5;
+
+// Position direction constants
+const POSITION_TYPE_LONG = 1;
+const POSITION_TYPE_SHORT = 2;
 
 const router = new CandleRouter({
   server,
@@ -168,6 +192,38 @@ app.get('/api/positions/open', async (req, res) => {
     monitor.recordError(error, { route: 'GET /api/positions/open', accountId });
     const status = error.code ? 502 : 500;
     res.status(status).json({ success: false, error: error.message, code: error.code });
+  }
+});
+
+app.get('/api/patterns', (req, res) => {
+  const timeframe = typeof req.query.timeframe === 'string' ? req.query.timeframe : '1m';
+  const symbolInput = req.query.symbol || req.query.contractCode || req.query.contractId;
+  const fallbackContract = bridge.getCurrentContract();
+  const contract = symbolInput ? resolveContract(symbolInput) : fallbackContract;
+  const symbolCode = contract?.code || resolveContractCode(symbolInput) || fallbackContract?.code;
+  if (!symbolCode) {
+    return res.status(400).json({ success: false, error: 'symbol is required' });
+  }
+
+  try {
+    const history = aggregator.getSnapshot(symbolCode) || [];
+    if (!history.length) {
+      return res.json({ success: true, symbol: symbolCode, timeframe, patterns: [] });
+    }
+    const normalized = history
+      .map((candle) => normalizeServerCandle(candle))
+      .filter(Boolean)
+      .sort((a, b) => a.time - b.time);
+    const sampled = resampleCandles(normalized, timeframe);
+    const patterns = evaluateChartPatterns({ candles: sampled, timeframe, contract });
+    res.json({ success: true, symbol: symbolCode, timeframe, patterns });
+  } catch (error) {
+    monitor.recordError(error, { route: 'GET /api/patterns', symbol: symbolCode, timeframe, stack: error.stack });
+    res.status(500).json({
+      success: false,
+      error: `Pattern detection failed: ${error.message}`,
+      details: error.stack || error
+    });
   }
 });
 
@@ -440,7 +496,7 @@ async function backfillHistory(contract) {
       contractId: target.id,
       unit: 'minute',
       unitNumber: 1,
-      limit: 720,
+      limit: resolveHistoryLimit(),
       includePartialBar: false,
       live: false
     });
@@ -453,6 +509,14 @@ async function backfillHistory(contract) {
     monitor.recordError(error, { phase: 'history-backfill', contractId: target.id, code: target.code });
     logger.warn({ err: error, contractId: target.id, code: target.code }, 'Historical backfill failed');
   }
+}
+
+function resolveHistoryLimit() {
+  const value = Number(config.historyLimit);
+  if (Number.isFinite(value) && value > 0) {
+    return value;
+  }
+  return 720;
 }
 
 function pickFirstFinite(...values) {
@@ -534,7 +598,7 @@ function enrichPositionWithMarketContext(position) {
   const averagePrice = pickFirstFinite(position.averagePrice, position.avgPrice, position.price, position.entryPrice);
   const size = Number.isFinite(position.size) ? Math.abs(Number(position.size)) : 0;
   const directionId = Number(position.type);
-  const direction = determinePositionDirection(directionId); // 1 = Long, 2 = Short
+  const direction = directionId === POSITION_TYPE_SHORT ? -1 : 1; // 1 = Long, 2 = Short
 
   let pnlTicks;
   let pnlValue;
@@ -547,11 +611,32 @@ function enrichPositionWithMarketContext(position) {
 
   const unrealized = pickFirstFinite(position.unrealizedPnL, position.unrealizedProfitLoss, position.unrealizedPL, position.openPnL);
   const realized = pickFirstFinite(position.realizedPnL, position.realizedProfitLoss, position.realizedPL, position.realized ?? 0);
-  const rtpl = Number.isFinite(pnlValue)
-    ? pnlValue + (Number.isFinite(realized) ? realized : 0)
-    : Number.isFinite(unrealized)
-      ? unrealized
-      : undefined;
+  const realtime = pickFirstFinite(
+    position.realTimeProfitLoss,
+    position.realTimePnL,
+    position.rtpl,
+    position.dayProfitLoss,
+    position.dayProfitOrLoss,
+    position.dayPnl,
+    position.dayPnL,
+    position.intradayProfitLoss,
+    position.intradayProfitOrLoss,
+    position.intradayPnL
+  );
+
+  let rtpl = Number.isFinite(realtime) ? realtime : undefined;
+  if (!Number.isFinite(rtpl) && Number.isFinite(pnlValue) && Number.isFinite(realized)) {
+    rtpl = pnlValue + realized;
+  }
+  if (!Number.isFinite(rtpl) && Number.isFinite(pnlValue)) {
+    rtpl = pnlValue;
+  }
+  if (!Number.isFinite(rtpl) && Number.isFinite(unrealized) && Number.isFinite(realized)) {
+    rtpl = unrealized + realized;
+  }
+  if (!Number.isFinite(rtpl) && Number.isFinite(unrealized)) {
+    rtpl = unrealized;
+  }
 
   return {
     ...position,
@@ -570,15 +655,6 @@ function enrichPositionWithMarketContext(position) {
   };
 }
 
-/**
- * Determines position direction based on type id.
- * @param {number} directionId
- * @returns {number} 1 for long, -1 for short
- */
-function determinePositionDirection(directionId) {
-  return directionId === 2 ? -1 : 1;
-}
-
 function summarizePositions(positions = []) {
   return positions.reduce(
     (acc, position) => {
@@ -588,7 +664,21 @@ function summarizePositions(positions = []) {
       const size = Number.isFinite(position.size) ? Number(position.size) : 0;
       const pnlTicks = Number(position.pnlTicks);
       const pnlValue = Number(position.pnlValue);
-      const rtpl = Number(position.rtplContribution);
+      let rtpl = Number(position.rtplContribution);
+      if (!Number.isFinite(rtpl)) {
+        const realized = pickFirstFinite(position.realizedPnL, position.realizedProfitLoss, position.realizedPL, position.realized);
+        const unrealized = Number(position.pnlValue);
+        if (Number.isFinite(realized) && Number.isFinite(unrealized)) {
+          rtpl = realized + unrealized;
+        } else if (Number.isFinite(unrealized)) {
+          rtpl = unrealized;
+        } else {
+          const rawUnrealized = pickFirstFinite(position.unrealizedPnL, position.unrealizedProfitLoss, position.unrealizedPL, position.openPnL);
+          if (Number.isFinite(rawUnrealized)) {
+            rtpl = Number(rawUnrealized);
+          }
+        }
+      }
       acc.totalSize += size;
       if (Number.isFinite(pnlTicks)) {
         acc.pnlTicks += pnlTicks;
@@ -656,6 +746,25 @@ function summarizeTrades(trades = []) {
   );
   summary.winRate = summary.count > 0 ? (summary.wins / summary.count) * 100 : 0;
   return summary;
+}
+
+function normalizeServerCandle(candle) {
+  if (!candle) {
+    return null;
+  }
+  let time = Number(candle.time ?? candle.timestamp);
+  const open = Number(candle.open);
+  const high = Number(candle.high);
+  const low = Number(candle.low);
+  const close = Number(candle.close);
+  const volume = Number(candle.volume) || 0;
+  if ([time, open, high, low, close].some((value) => !Number.isFinite(value))) {
+    return null;
+  }
+  if (time > 10_000_000_000) {
+    time = Math.floor(time / 1000);
+  }
+  return { time, open, high, low, close, volume };
 }
 
 function resolvePositionDirection(flag) {

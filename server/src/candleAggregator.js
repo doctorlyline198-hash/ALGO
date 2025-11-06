@@ -1,8 +1,10 @@
 import EventEmitter from 'events';
 import { logger } from './logger.js';
 import { monitor } from './monitor.js';
+import { config } from './config.js';
 
-const MAX_HISTORY = 720;
+const DEFAULT_MAX_HISTORY = 4320;
+const MAX_HISTORY = Number.isFinite(Number(config.historyLimit)) && Number(config.historyLimit) > 0 ? Number(config.historyLimit) : DEFAULT_MAX_HISTORY;
 
 export class CandleAggregator extends EventEmitter {
   constructor() {

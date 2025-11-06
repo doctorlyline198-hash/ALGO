@@ -26,6 +26,13 @@ export const sampleCandles = [
 ];
 
 export const strategies = [
+  {
+    name: 'GC RSI+Keltner Intraday',
+    timeframe: '1-5m',
+    venue: 'MGC/GC',
+    status: 'on',
+    risk: 'Max $50 loss · 1-3 micros'
+  },
   { name: 'chill chill', timeframe: '10m', venue: 'MNQ', status: 'on' },
   { name: 'chill sdfasdchill', timeframe: '10m', venue: 'MNQ', status: 'off' },
   { name: 'exit policy mgc 1 minute', timeframe: '1m', venue: 'MGC', status: 'on' },

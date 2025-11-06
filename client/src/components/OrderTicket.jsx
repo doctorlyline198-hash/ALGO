@@ -586,13 +586,13 @@ function mapContracts(list = []) {
     }
     const code = toStringSafe(item.code ?? item.symbol ?? item.contractCode ?? item.symbolId) ?? id;
     const name = item.name || item.displayName || item.description || code;
-  const contractTickSize = parseNumeric(item.tickSize ?? item.tick_size ?? item.minimumTick);
+  const tickSize = parseNumeric(item.tickSize ?? item.tick_size ?? item.minimumTick);
   const tickValue = parseNumeric(item.tickValue ?? item.tick_value ?? item.tickDollarValue);
     result.set(id, {
       id,
       code,
       name,
-      tickSize: contractTickSize || undefined,
+      tickSize: tickSize || undefined,
       tickValue: tickValue || undefined
     });
   });

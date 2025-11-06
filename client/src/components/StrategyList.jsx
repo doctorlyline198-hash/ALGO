@@ -21,6 +21,7 @@ export default function StrategyList({ strategies = [] }) {
                 <span className="strategy-name">{s.name}</span>
                 <span className="strategy-info">{s.timeframe}</span>
                 <span className="strategy-info">{s.venue}</span>
+                {s.risk ? <span className="strategy-info">{s.risk}</span> : null}
               </div>
               <div className="strategy-actions">
                 <span className="status-dot" style={{ backgroundColor: status.color }} />

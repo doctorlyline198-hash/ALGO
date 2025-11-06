@@ -34,8 +34,6 @@ const UNIT_MS = {
   6: 2_592_000_000
 };
 
-const TOKEN_REFRESH_BUFFER_MS = 60_000;
-
 export class TsxClient {
   constructor() {
     this.token = null;
@@ -71,7 +69,7 @@ export class TsxClient {
 
   async getToken() {
     const now = Date.now();
-    if (this.token && now < this.tokenExpiresAt - TOKEN_REFRESH_BUFFER_MS) {
+    if (this.token && now < this.tokenExpiresAt - 60_000) {
       return this.token;
     }
     return this.authenticate();
@@ -476,8 +474,8 @@ export class TsxClient {
     };
 
     try {
-      const token = await this.getToken();
-      const url = `${config.apiEndpoint}/api/History/retrieveBars`;
+  const token = await this.getToken();
+  const url = `${config.historyEndpoint || config.apiEndpoint}/api/History/retrieveBars`;
       const response = await axios.post(
         url,
         body,

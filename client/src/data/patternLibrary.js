@@ -46,6 +46,7 @@ export const PATTERN_LIBRARY = [
   { name: 'Open Interest Surge', type: 'Continuation', category: 'Indicator', desc: 'Rising OI with price = trend confirmation.' },
   { name: 'Mean Reversion', type: 'Statistical', category: 'Indicator', desc: 'Price deviates far from mean; expect return.' },
   { name: 'Momentum Breakout', type: 'Momentum', category: 'Indicator', desc: 'Strong candle + volume = breakout confirmation.' },
+  { name: 'RSI + Keltner Intraday (Gold)', type: 'System', category: 'Strategy', desc: 'Intraday GC micro play: RSI threshold cross plus Keltner break with $50 max risk and 1-3 micros.' },
   { name: 'Heikin Ashi Trend Flip', type: 'Trend', category: 'Indicator', desc: 'HA color change after series; early trend shift.' },
   { name: 'Parabolic SAR Reversal', type: 'Reversal', category: 'Indicator', desc: 'PSAR dots flip sides; reversal signal.' },
   { name: 'Keltner Channel Break', type: 'Volatility', category: 'Indicator', desc: 'Close outside channel = breakout strength.' },

@@ -4,4 +4,9 @@
 - [x] Start React client dev server for preview
 - [ ] Investigate missing candles from live stream and capture payloads
 - [ ] Implement server-side monitor/logger for diagnostics
-- [ ] Provide fallback/indicator overlay on frontend (SMA) and ensure chart renders
+- [x] Provide fallback/indicator overlay on frontend (SMA) and ensure chart renders
+- [x] Instrument zone rendering with debug logging for chart overlays
+- [x] Extend indicator pipeline with Order Blocks and structure signals
+- [x] Surface indicator signals in UI/strategy consumers
+- [ ] Validate FVG and Order Block outputs with targeted tests _(visual spot-check done; automate next)_
+- [ ] Wire remaining pattern implementations into strategy engine

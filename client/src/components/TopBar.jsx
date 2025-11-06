@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { CONTRACTS } from '../data/contracts.js';
+import { CONTRACTS, resolveContract } from '../data/contracts.js';
 import { DEFAULT_TIMEFRAME, TIMEFRAME_GROUPS, flattenTimeframes } from '../data/timeframes.js';
 
 const ALL_TIMEFRAMES = flattenTimeframes();
@@ -32,8 +32,18 @@ export default function TopBar({
 
   const handleSubmit = (event) => {
     event.preventDefault();
-    if (!query) return;
-    onSymbolChange(query.toUpperCase());
+    const raw = (query || '').trim().toUpperCase();
+    if (!raw) return;
+    const exact = CONTRACTS.find(
+      (c) => c.code === raw || c.id === raw || c.symbolId === raw
+    );
+    const fuzzy = exact
+      ? exact
+      : CONTRACTS.find((c) => c.code.startsWith(raw));
+    const target = fuzzy || resolveContract(raw);
+    const nextSymbol = target?.code || raw;
+    setQuery(nextSymbol);
+    onSymbolChange(nextSymbol);
   };
 
   return (
